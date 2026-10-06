@@ -2,6 +2,9 @@
 import unittest
 import bs4
 import textwrap
+import signal
+import subprocess
+import sys
 import soupsieve as sv
 import pytest
 
@@ -102,6 +105,63 @@ class TestCase(unittest.TestCase):
         print('----Running Assert Test----')
         with self.assertRaises(exception):
             self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+
+    def assert_syntax_error_no_timeout(self, pattern, timeout=3):
+        """Assert pattern fails for syntax error, not timeout error."""
+
+        print('----Running Timeout Assert Test----')
+        print('PATTERN: ', pattern)
+
+        if hasattr(signal, 'SIGALRM'):
+            def timeout_handler(signum, frame):
+                raise TimeoutError
+
+            original_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+
+            passed = False
+            try:
+                with self.assertRaises(sv.SelectorSyntaxError):
+                    sv.compile(pattern)
+                passed = True
+            except TimeoutError:
+                pass
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, original_handler)
+            self.assertTrue(passed)
+        else:
+            # `SIGALRM` is not available on all platforms (Windows), and a thread cannot interrupt
+            # a running regular expression, so compile in a subprocess that is killed on timeout.
+            # Allow some extra time for the interpreter to start up.
+            code = '\n'.join(
+                [
+                    'import sys',
+                    'import soupsieve as sv',
+                    'try:',
+                    '    sv.compile(sys.stdin.read())',
+                    'except sv.SelectorSyntaxError:',
+                    '    sys.exit(0)',
+                    'sys.exit(1)'
+                ]
+            )
+
+            passed = False
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-c', code],
+                    input=pattern,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                    timeout=timeout + 10
+                )
+                print(result.stdout)
+                print(result.stderr)
+                passed = result.returncode == 0
+            except subprocess.TimeoutExpired:
+                pass
+            self.assertTrue(passed)
 
     def assert_selector(self, markup, selectors, expected_ids, namespaces={}, custom=None, flags=0):
         """Assert selector."""

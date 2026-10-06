@@ -401,3 +401,9 @@ class TestLang(util.TestCase):
             [],
             flags=util.XHTML
         )
+
+    def test_bad_language_unclosed(self):
+        """Test bad language with unclosed quote fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('p:lang("' + ('x' * 300))
+        self.assert_syntax_error_no_timeout("p:lang('" + ('x' * 300))
